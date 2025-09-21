@@ -1,0 +1,22 @@
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+
+class DocumentResponse(BaseModel):
+    id: int
+    filename: str
+    status: str
+    content_preview: str
+    
+    class Config:
+        from_attributes = True
+
+class ProcessingRequest(BaseModel):
+    query: str
+    custom_prompt: Optional[str] = None
+    top_k: int = 5
+
+class SummaryResponse(BaseModel):
+    query: str
+    response: str
+    relevant_chunks: List[str]
