@@ -6,7 +6,7 @@ A comprehensive framework for intelligent document processing and analysis using
 
 - **PDF Upload & Processing**: Upload PDF documents with automatic text extraction and OCR fallback
 - **Intelligent Metadata Storage**: SQL database for efficient document metadata and content storage
-- **LLM Integration**: Advanced language model integration for document analysis
+- **LLM Integration**: Advanced language model integration using xAI's Grok for document analysis
 - **RAG System**: Retrieval-Augmented Generation for contextual document querying
 - **Interactive Dashboard**: Custom prompts and intelligent summaries/explanations
 - **Localhost Preview**: Complete Docker setup for easy local development
@@ -40,7 +40,7 @@ A comprehensive framework for intelligent document processing and analysis using
 - **FastAPI** for high-performance API
 - **SQLAlchemy** for database ORM
 - **ChromaDB** for vector storage and RAG
-- **OpenAI API** for LLM integration
+- **xAI Grok API** for LLM integration
 - **Tesseract OCR** for text extraction
 - **pdf2image** for PDF processing
 
@@ -179,7 +179,7 @@ project-dartos/
 ### Environment Variables
 ```bash
 # Required for LLM features
-OPENAI_API_KEY=your_api_key
+XAI_API_KEY=your_xai_api_key
 
 # Database
 DATABASE_URL=sqlite:///./dartos.db
@@ -213,7 +213,7 @@ npm test
 
 1. **OCR not working**: Ensure Tesseract is installed
 2. **Upload fails**: Check file permissions in uploads directory
-3. **LLM errors**: Verify OpenAI API key is set correctly
+3. **LLM errors**: Verify xAI API key is set correctly
 4. **Database issues**: Check database URL and permissions
 
 ### Logs
