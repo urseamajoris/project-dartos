@@ -4,8 +4,12 @@ from typing import List, Optional
 
 class LLMService:
     def __init__(self):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-3.5-turbo"
+        # Using xAI (Grok) API which is OpenAI-compatible
+        self.client = OpenAI(
+            api_key=os.getenv("XAI_API_KEY"),
+            base_url="https://api.x.ai/v1"
+        )
+        self.model = "grok-beta"
     
     def generate_response(self, query: str, context: List[str], custom_prompt: Optional[str] = None) -> str:
         """Generate response using LLM with context from RAG"""
@@ -72,11 +76,11 @@ class LLMService:
             return f"Error generating summary: {str(e)}"
     
     def analyze_image(self, image_path: str) -> str:
-        """Analyze image content using GPT-4 Vision (if available)"""
+        """Analyze image content using Grok Vision (if available)"""
         try:
-            # This would require GPT-4 Vision API
+            # This would require Grok Vision API
             # For now, return a placeholder
-            return "Image analysis feature requires GPT-4 Vision API configuration."
+            return "Image analysis feature requires Grok Vision API configuration."
         
         except Exception as e:
             return f"Error analyzing image: {str(e)}"
