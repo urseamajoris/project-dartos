@@ -53,7 +53,35 @@ A comprehensive framework for intelligent document processing and analysis using
 
 ### Prerequisites
 - Docker and Docker Compose
+- Python 3.11+ (for local development)
 - OpenAI API key (optional, for LLM features)
+
+### Option 1: Bootstrap Script (Recommended)
+Use the single-command bootstrap script to set up everything:
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd project-dartos
+
+# Run the bootstrap script (installs requirements, starts PostgreSQL, runs server)
+python run.py
+```
+
+The bootstrap script will:
+1. Install Python requirements from `backend/requirements.txt`
+2. Start PostgreSQL in Docker
+3. Set up environment variables
+4. Launch the FastAPI server on port 8000
+
+**Bootstrap Script Options:**
+```bash
+python run.py --help          # Show help message
+python run.py --skip-install  # Skip package installation
+```
+
+### Option 2: Docker Compose
+For full containerized setup:
 
 ### 1. Clone and Setup
 ```bash
@@ -82,9 +110,9 @@ docker-compose logs -f
 ```
 
 ### 4. Access the Application
-- **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
+- **Frontend**: http://localhost:3000 (if using Docker Compose)
 
 ## 📋 Usage Workflow
 

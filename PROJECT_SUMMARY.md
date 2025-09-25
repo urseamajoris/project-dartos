@@ -36,6 +36,7 @@ project-dartos/
 │   ├── package.json        # Node.js dependencies
 │   └── Dockerfile         # Frontend container config
 ├── docker-compose.yml      # Multi-service orchestration
+├── run.py                  # Bootstrap script - single command setup
 ├── .env.example           # Environment variables template
 ├── .gitignore            # Git ignore rules
 ├── setup.sh              # Automated setup script
