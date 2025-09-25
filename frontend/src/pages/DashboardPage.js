@@ -6,7 +6,6 @@ import {
   TextField,
   Button,
   Grid,
-  Alert,
   CircularProgress,
   Card,
   CardContent,
@@ -30,6 +29,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { documentService } from '../services/api';
 import FileUpload from '../components/FileUpload';
+import { useError } from '../contexts/ErrorContext';
 
 function DashboardPage() {
   const [query, setQuery] = useState('');
@@ -37,7 +37,7 @@ function DashboardPage() {
   const [topK, setTopK] = useState(5);
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const { showError } = useError();
 
   // Document management state
   const [documents, setDocuments] = useState([]);
@@ -46,16 +46,28 @@ function DashboardPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    loadDocuments();
-  }, []);
+    const loadInitialDocuments = async () => {
+      try {
+        setLoading(true);
+        const docs = await documentService.getDocuments();
+        setDocuments(docs);
+      } catch (err) {
+        showError(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadInitialDocuments();
+  }, [showError]);
 
-  const loadDocuments = async () => {
+  const refreshDocuments = async () => {
     try {
       setLoading(true);
       const docs = await documentService.getDocuments();
       setDocuments(docs);
     } catch (err) {
-      setError(`Failed to load documents: ${err.response?.data?.detail || err.message}`);
+      showError(err);
     } finally {
       setLoading(false);
     }
@@ -63,7 +75,7 @@ function DashboardPage() {
 
   const handleUploadSuccess = (uploadedDocs) => {
     // Refresh document list after upload
-    loadDocuments();
+    refreshDocuments();
   };
 
   const handleViewDocument = async (doc) => {
@@ -72,7 +84,7 @@ function DashboardPage() {
       setSelectedDoc(fullDoc);
       setDialogOpen(true);
     } catch (err) {
-      setError(`Failed to load document: ${err.response?.data?.detail || err.message}`);
+      showError(err);
     }
   };
 
@@ -82,7 +94,6 @@ function DashboardPage() {
 
     try {
       setProcessing(true);
-      setError(null);
       const response = await documentService.processDocument(
         query,
         customPrompt || null,
@@ -90,7 +101,7 @@ function DashboardPage() {
       );
       setResult(response);
     } catch (err) {
-      setError(`Processing failed: ${err.response?.data?.detail || err.message}`);
+      showError(err);
     } finally {
       setProcessing(false);
     }
@@ -330,15 +341,6 @@ function DashboardPage() {
                 </Accordion>
               )}
             </Paper>
-          </Grid>
-        )}
-
-        {/* Error Display */}
-        {error && (
-          <Grid item xs={12}>
-            <Alert severity="error">
-              {error}
-            </Alert>
           </Grid>
         )}
       </Grid>

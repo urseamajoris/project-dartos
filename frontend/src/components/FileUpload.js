@@ -6,7 +6,6 @@ import {
   Typography,
   Button,
   CircularProgress,
-  Alert,
   List,
   ListItem,
   ListItemText,
@@ -15,11 +14,12 @@ import {
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DescriptionIcon from '@mui/icons-material/Description';
 import { documentService } from '../services/api';
+import { useError } from '../contexts/ErrorContext';
 
 function FileUpload({ onUploadSuccess }) {
   const [uploading, setUploading] = useState(false);
   const [uploadResults, setUploadResults] = useState([]);
-  const [error, setError] = useState(null);
+  const { showError } = useError();
 
   const onDrop = useCallback(async (acceptedFiles, rejectedFiles) => {
     // Handle rejected files (too large, wrong type, etc.)
@@ -34,12 +34,11 @@ function FileUpload({ onUploadSuccess }) {
           return `${file.file.name}: ${error.message}`;
         }
       });
-      setError(`Upload failed: ${errors.join(' ')}`);
+      showError(`Upload failed: ${errors.join(' ')}`);
       return;
     }
 
     setUploading(true);
-    setError(null);
     setUploadResults([]);
 
     try {
@@ -53,11 +52,11 @@ function FileUpload({ onUploadSuccess }) {
         onUploadSuccess(results);
       }
     } catch (err) {
-      setError(`Upload failed: ${err.response?.data?.detail || err.message}`);
+      showError(err);
     } finally {
       setUploading(false);
     }
-  }, [onUploadSuccess]);
+  }, [onUploadSuccess, showError]);
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -104,12 +103,6 @@ function FileUpload({ onUploadSuccess }) {
           <CircularProgress />
           <Typography sx={{ ml: 2 }}>Uploading and processing...</Typography>
         </Box>
-      )}
-
-      {error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {error}
-        </Alert>
       )}
 
       {uploadResults.length > 0 && (

@@ -9,7 +9,6 @@ import {
   ListItemIcon,
   Button,
   Chip,
-  Alert,
   CircularProgress,
   Dialog,
   DialogTitle,
@@ -19,29 +18,30 @@ import {
 import DescriptionIcon from '@mui/icons-material/Description';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { documentService } from '../services/api';
+import { useError } from '../contexts/ErrorContext';
 
 function DocumentsPage() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { showError } = useError();
 
   useEffect(() => {
-    loadDocuments();
-  }, []);
-
-  const loadDocuments = async () => {
-    try {
-      setLoading(true);
-      const docs = await documentService.getDocuments();
-      setDocuments(docs);
-    } catch (err) {
-      setError(`Failed to load documents: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const loadInitialDocuments = async () => {
+      try {
+        setLoading(true);
+        const docs = await documentService.getDocuments();
+        setDocuments(docs);
+      } catch (err) {
+        showError(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadInitialDocuments();
+  }, [showError]);
 
   const handleViewDocument = async (doc) => {
     try {
@@ -49,7 +49,7 @@ function DocumentsPage() {
       setSelectedDoc(fullDoc);
       setDialogOpen(true);
     } catch (err) {
-      setError(`Failed to load document: ${err.response?.data?.detail || err.message}`);
+      showError(err);
     }
   };
 
@@ -72,12 +72,6 @@ function DocumentsPage() {
       <Typography variant="body1" color="text.secondary" paragraph>
         Manage and view your uploaded documents
       </Typography>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
 
       {documents.length === 0 ? (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
