@@ -4,12 +4,17 @@ from typing import List, Optional
 
 class LLMService:
     def __init__(self):
-        # Using xAI (Grok) API which is OpenAI-compatible
-        self.client = OpenAI(
-            api_key=os.getenv("XAI_API_KEY"),
-            base_url="https://api.x.ai/v1"
-        )
-        self.model = "grok-beta"
+        # Use xAI Grok API client
+        api_key = os.getenv("GROK_API_KEY")
+        if not api_key:
+            print("Warning: GROK_API_KEY environment variable not set. LLM features will be disabled.")
+            self.client = None
+        else:
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url="https://api.x.ai/v1"
+            )
+        self.model = "grok-4-fast-reasoning"
     
     def generate_response(self, query: str, context: List[str], custom_prompt: Optional[str] = None) -> str:
         """Generate response using LLM with context from RAG"""
@@ -35,6 +40,9 @@ class LLMService:
         """
         
         try:
+            if self.client is None:
+                return "LLM service is not configured. Please set GROK_API_KEY environment variable."
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[

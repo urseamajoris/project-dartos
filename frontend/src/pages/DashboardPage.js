@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Typography,
   Box,
@@ -14,11 +14,22 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Slider,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SendIcon from '@mui/icons-material/Send';
+import DescriptionIcon from '@mui/icons-material/Description';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { documentService } from '../services/api';
+import FileUpload from '../components/FileUpload';
 
 function DashboardPage() {
   const [query, setQuery] = useState('');
@@ -27,6 +38,43 @@ function DashboardPage() {
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+
+  // Document management state
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const loadDocuments = async () => {
+    try {
+      setLoading(true);
+      const docs = await documentService.getDocuments();
+      setDocuments(docs);
+    } catch (err) {
+      setError(`Failed to load documents: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUploadSuccess = (uploadedDocs) => {
+    // Refresh document list after upload
+    loadDocuments();
+  };
+
+  const handleViewDocument = async (doc) => {
+    try {
+      const fullDoc = await documentService.getDocument(doc.id);
+      setSelectedDoc(fullDoc);
+      setDialogOpen(true);
+    } catch (err) {
+      setError(`Failed to load document: ${err.response?.data?.detail || err.message}`);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -63,17 +111,99 @@ function DashboardPage() {
   return (
     <Box>
       <Typography variant="h4" component="h1" gutterBottom>
-        Analysis Dashboard
+        Dartos - Document Analysis Dashboard
       </Typography>
       <Typography variant="body1" color="text.secondary" paragraph>
-        Query your documents using natural language and get intelligent responses
+        Upload documents and query them using AI-powered analysis
       </Typography>
 
       <Grid container spacing={4}>
+        {/* File Upload Section */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Upload Documents
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Upload PDF files to analyze them with AI
+            </Typography>
+            <FileUpload onUploadSuccess={handleUploadSuccess} />
+          </Paper>
+        </Grid>
+
+        {/* Documents List */}
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Query Configuration
+              Your Documents ({documents.length})
+            </Typography>
+
+            {loading ? (
+              <Box display="flex" justifyContent="center" alignItems="center" minHeight="100px">
+                <CircularProgress size={24} />
+                <Typography sx={{ ml: 2 }}>Loading...</Typography>
+              </Box>
+            ) : documents.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No documents uploaded yet. Upload a PDF above to get started.
+              </Typography>
+            ) : (
+              <List dense>
+                {documents.slice(0, 5).map((doc) => (
+                  <ListItem
+                    key={doc.id}
+                    secondaryAction={
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<VisibilityIcon />}
+                        onClick={() => handleViewDocument(doc)}
+                      >
+                        View
+                      </Button>
+                    }
+                  >
+                    <ListItemIcon>
+                      <DescriptionIcon color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                            {doc.filename}
+                          </Typography>
+                          <Chip
+                            label={doc.status}
+                            color={doc.status === 'processed' ? 'success' : 'warning'}
+                            size="small"
+                          />
+                        </Box>
+                      }
+                      secondary={
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          {doc.content_preview?.substring(0, 80)}...
+                        </Typography>
+                      }
+                    />
+                  </ListItem>
+                ))}
+                {documents.length > 5 && (
+                  <ListItem>
+                    <Typography variant="body2" color="text.secondary">
+                      ... and {documents.length - 5} more documents
+                    </Typography>
+                  </ListItem>
+                )}
+              </List>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* Query Interface */}
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              AI Analysis Query
             </Typography>
             
             <Box component="form" onSubmit={handleSubmit}>
@@ -126,7 +256,7 @@ function DashboardPage() {
                 startIcon={processing ? <CircularProgress size={20} /> : <SendIcon />}
                 sx={{ mb: 2 }}
               >
-                {processing ? 'Processing...' : 'Analyze Documents'}
+                {processing ? 'Analyzing...' : 'Analyze Documents'}
               </Button>
             </Box>
 
@@ -150,74 +280,88 @@ function DashboardPage() {
           </Paper>
         </Grid>
 
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, minHeight: 400 }}>
-            <Typography variant="h6" gutterBottom>
-              Analysis Results
-            </Typography>
+        {/* Analysis Results */}
+        {result && (
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Analysis Results
+              </Typography>
 
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="subtitle2" color="primary" gutterBottom>
+                    Query:
+                  </Typography>
+                  <Typography variant="body2" paragraph>
+                    {result.query}
+                  </Typography>
+                  
+                  <Typography variant="subtitle2" color="primary" gutterBottom>
+                    Response:
+                  </Typography>
+                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {result.response}
+                  </Typography>
+                </CardContent>
+              </Card>
 
-            {!result && !error && (
-              <Box sx={{ textAlign: 'center', color: 'text.secondary', mt: 4 }}>
-                <Typography>
-                  Enter a query and click "Analyze Documents" to see results here
-                </Typography>
-              </Box>
-            )}
+              {result.relevant_chunks && result.relevant_chunks.length > 0 && (
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="subtitle2">
+                      Relevant Document Sections ({result.relevant_chunks.length})
+                    </Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    {result.relevant_chunks.map((chunk, index) => (
+                      <Card key={index} sx={{ mb: 2 }}>
+                        <CardContent>
+                          <Typography variant="caption" color="text.secondary">
+                            Section {index + 1}:
+                          </Typography>
+                          <Typography variant="body2">
+                            {chunk}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </AccordionDetails>
+                </Accordion>
+              )}
+            </Paper>
+          </Grid>
+        )}
 
-            {result && (
-              <Box>
-                <Card sx={{ mb: 3 }}>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="primary" gutterBottom>
-                      Query:
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                      {result.query}
-                    </Typography>
-                    
-                    <Typography variant="subtitle2" color="primary" gutterBottom>
-                      Response:
-                    </Typography>
-                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {result.response}
-                    </Typography>
-                  </CardContent>
-                </Card>
-
-                {result.relevant_chunks && result.relevant_chunks.length > 0 && (
-                  <Accordion>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography variant="subtitle2">
-                        Relevant Document Sections ({result.relevant_chunks.length})
-                      </Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      {result.relevant_chunks.map((chunk, index) => (
-                        <Card key={index} sx={{ mb: 2 }}>
-                          <CardContent>
-                            <Typography variant="caption" color="text.secondary">
-                              Section {index + 1}:
-                            </Typography>
-                            <Typography variant="body2">
-                              {chunk}
-                            </Typography>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </AccordionDetails>
-                  </Accordion>
-                )}
-              </Box>
-            )}
-          </Paper>
-        </Grid>
+        {/* Error Display */}
+        {error && (
+          <Grid item xs={12}>
+            <Alert severity="error">
+              {error}
+            </Alert>
+          </Grid>
+        )}
       </Grid>
+
+      {/* Document View Dialog */}
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          {selectedDoc?.filename}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+            {selectedDoc?.content_preview}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -1,26 +1,31 @@
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 import uuid
 from typing import List
 import re
 
 class RAGService:
     def __init__(self):
-        # Initialize ChromaDB
-        self.client = chromadb.Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory="./chroma_db"
-        ))
-        
-        # Get or create collection
+        # Initialize ChromaDB with the new API (v1.0+)
+        self.client = chromadb.PersistentClient(path="./chroma_db")
         self.collection = self.client.get_or_create_collection(
-            name="documents",
-            metadata={"hnsw:space": "cosine"}
+            name="documents"
         )
-        
         # Initialize embedding model
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        if SENTENCE_TRANSFORMERS_AVAILABLE:
+            try:
+                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            except Exception as e:
+                print(f"Warning: Could not load embedding model: {e}")
+                self.embedding_model = None
+        else:
+            print("Warning: sentence-transformers not available. RAG features will be limited.")
+            self.embedding_model = None
     
     def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
         """Split text into overlapping chunks"""

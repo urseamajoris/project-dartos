@@ -22,7 +22,7 @@ function App() {
         
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
           <Routes>
-            <Route path="/" element={<HomePage />} />
+            <Route path="/" element={<DashboardPage />} />
             <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
           </Routes>
