@@ -21,7 +21,23 @@ function FileUpload({ onUploadSuccess }) {
   const [uploadResults, setUploadResults] = useState([]);
   const [error, setError] = useState(null);
 
-  const onDrop = useCallback(async (acceptedFiles) => {
+  const onDrop = useCallback(async (acceptedFiles, rejectedFiles) => {
+    // Handle rejected files (too large, wrong type, etc.)
+    if (rejectedFiles.length > 0) {
+      const errors = rejectedFiles.map(file => {
+        const error = file.errors[0];
+        if (error.code === 'file-too-large') {
+          return `${file.file.name}: File is too large. Maximum size is 10MB.`;
+        } else if (error.code === 'file-invalid-type') {
+          return `${file.file.name}: Only PDF files are allowed.`;
+        } else {
+          return `${file.file.name}: ${error.message}`;
+        }
+      });
+      setError(`Upload failed: ${errors.join(' ')}`);
+      return;
+    }
+
     setUploading(true);
     setError(null);
     setUploadResults([]);
@@ -43,11 +59,12 @@ function FileUpload({ onUploadSuccess }) {
     }
   }, [onUploadSuccess]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
       'application/pdf': ['.pdf']
     },
+    maxSize: 10 * 1024 * 1024, // 10MB
     multiple: true
   });
 
