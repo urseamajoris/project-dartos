@@ -4,28 +4,71 @@ A comprehensive framework for intelligent document processing and analysis using
 
 ## 🚀 Features
 
-- **PDF Upload & Processing**: Upload PDF documents with automatic text extraction and OCR fallback
-- **Intelligent Metadata Storage**: SQL database for efficient document metadata and content storage
-- **LLM Integration**: Advanced language model integration using xAI's Grok for document analysis
-- **RAG System**: Retrieval-Augmented Generation for contextual document querying
-- **Interactive Dashboard**: Custom prompts and intelligent summaries/explanations
-- **Localhost Preview**: Complete Docker setup for easy local development
+- **🚀 Enhanced Bootstrap Script**: Intelligent dependency management with network resilience and multiple fallback strategies
+- **📄 PDF Upload & Processing**: Upload PDF documents with automatic text extraction and OCR fallback
+- **🗄️ Intelligent Database Storage**: PostgreSQL for efficient document metadata and content storage
+- **🤖 LLM Integration**: Advanced language model integration using xAI's Grok and OpenAI for document analysis
+- **🔍 RAG System**: Retrieval-Augmented Generation with ChromaDB for contextual document querying
+- **📊 Interactive Dashboard**: Custom prompts and intelligent summaries/explanations
+- **🐳 Docker Integration**: Complete containerized setup with automatic service orchestration
+- **🔧 Development Ready**: Hot-reload, comprehensive error handling, and troubleshooting guidance
 
-## 🏗️ Architecture
+## 🏗️ Enhanced Architecture
 
+### System Overview
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   React Frontend │◄──►│  FastAPI Backend │◄──►│  SQL Database   │
-│   (Port 3000)   │    │   (Port 8000)    │    │  (PostgreSQL)   │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                │
-                                ▼
-                       ┌──────────────────┐
-                       │   AI Services    │
-                       │  • OpenAI LLM    │
-                       │  • ChromaDB RAG  │
-                       │  • OCR Engine    │
-                       └──────────────────┘
+                    🚀 Bootstrap Script (run.py)
+                         │
+                         ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │                 🐳 Docker Layer                          │
+    │  ┌─────────────────┐              ┌─────────────────┐    │
+    │  │   PostgreSQL    │              │  Optional: React │    │
+    │  │   Database      │              │   Frontend      │    │
+    │  │  (Port 5432)    │              │  (Port 3000)    │    │
+    │  └─────────────────┘              └─────────────────┘    │
+    └─────────────────────────────────────────────────────────┘
+                         │                        │
+                         ▼                        ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │               📡 FastAPI Backend                        │
+    │                  (Port 8000)                           │
+    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+    │  │ PDF Processor│  │ AI Services │  │ RAG System  │     │
+    │  │ • OCR       │  │ • OpenAI    │  │ • ChromaDB  │     │
+    │  │ • Text Ext. │  │ • xAI Grok  │  │ • Embedding │     │
+    │  └─────────────┘  └─────────────┘  └─────────────┘     │
+    └─────────────────────────────────────────────────────────┘
+```
+
+### Bootstrap Process Flow
+```
+🚀 python run.py
+    │
+    ├── 🔍 Check Docker Installation & Daemon
+    │
+    ├── 📦 Smart Dependency Management
+    │   ├── Install system packages (apt/yum)
+    │   ├── Try bulk pip install from requirements.txt
+    │   ├── Fallback: Individual package installation
+    │   ├── Fallback: No-deps installation
+    │   └── Final check: Import validation
+    │
+    ├── 🐳 PostgreSQL Docker Setup
+    │   ├── Check existing containers
+    │   ├── Pull postgres:13 image
+    │   ├── Start container with health checks
+    │   └── Validate database connectivity
+    │
+    ├── ⚙️ Environment Configuration
+    │   ├── Set DATABASE_URL
+    │   ├── Create uploads/ directory
+    │   └── Create backend/chroma_db/ directory
+    │
+    └── 🌐 FastAPI Server Launch
+        ├── Test Python imports
+        ├── Check port availability
+        └── Start uvicorn server
 ```
 
 ## 🛠️ Tech Stack
@@ -52,67 +95,156 @@ A comprehensive framework for intelligent document processing and analysis using
 ## 🚦 Quick Start
 
 ### Prerequisites
-- Docker and Docker Compose
-- Python 3.11+ (for local development)
-- OpenAI API key (optional, for LLM features)
+- **Docker and Docker Compose** (Required)
+- **Python 3.11+** (for local development)
+- **Internet connection** (for package installation)
+- **Git** (to clone the repository)
 
-### Option 1: Bootstrap Script (Recommended)
-Use the single-command bootstrap script to set up everything:
+### Option 1: Docker Compose (Recommended)
+For the most reliable setup with all dependencies pre-installed:
 
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd project-dartos
 
-# Run the bootstrap script (installs requirements, starts PostgreSQL, runs server)
+# Start all services with Docker Compose
+docker compose up
+
+# Or run in background
+docker compose up -d
+```
+
+**Docker Compose includes:**
+- FastAPI backend with all Python dependencies
+- PostgreSQL database
+- React frontend (if configured)
+- Volume persistence for data
+- Automatic service networking
+
+### Option 2: Enhanced Bootstrap Script
+Use the intelligent bootstrap script that handles dependency installation automatically:
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd project-dartos
+
+# Check if Docker Compose is available
+python run.py --docker-check
+
+# Run the enhanced bootstrap script
 python run.py
 ```
 
-The bootstrap script will:
-1. Install Python requirements from `backend/requirements.txt`
-2. Start PostgreSQL in Docker
-3. Set up environment variables
-4. Launch the FastAPI server on port 8000
+**The bootstrap script intelligently:**
+1. **Installs system dependencies** (build tools, PostgreSQL client)
+2. **Manages Python packages** with multiple fallback strategies
+3. **Starts PostgreSQL** in Docker with health checks
+4. **Sets up environment** variables and directories
+5. **Launches FastAPI server** on port 8000 with comprehensive error handling
 
 **Bootstrap Script Options:**
 ```bash
-python run.py --help          # Show help message
-python run.py --skip-install  # Skip package installation
+python run.py --help           # Show comprehensive help
+python run.py --skip-install   # Skip Python package installation
+python run.py --docker-check   # Check Docker Compose availability
 ```
 
-### Option 2: Docker Compose
-For full containerized setup:
+**Network Resilience Features:**
+- Detects PyPI connectivity issues
+- Multiple installation strategies (bulk → individual → no-deps)
+- Recommends Docker Compose when packages fail
+- Provides specific troubleshooting guidance
 
-### 1. Clone and Setup
+### Option 3: Manual Development Setup
+For advanced users who want full control:
+
 ```bash
+# 1. Clone and setup
 git clone <repository-url>
 cd project-dartos
-cp .env.example .env
+
+# 2. Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r backend/requirements.txt
+
+# 4. Start PostgreSQL (using Docker)
+docker run -d \
+  --name dartos-postgres \
+  -e POSTGRES_DB=dartos \
+  -e POSTGRES_USER=dartos \
+  -e POSTGRES_PASSWORD=dartos123 \
+  -p 5432:5432 \
+  postgres:13
+
+# 5. Set environment variables
+export DATABASE_URL="postgresql://dartos:dartos123@localhost:5432/dartos"
+
+# 6. Start the server
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. Configure Environment
-Edit `.env` file:
+### Access Your Application
+
+Once started (any method), access your application at:
+- **🌐 Backend API**: http://localhost:8000
+- **📚 API Documentation**: http://localhost:8000/docs
+- **🗄️ Database**: PostgreSQL on localhost:5432 (if using bootstrap/manual)
+
+## 🔧 Troubleshooting
+
+### Common Issues & Solutions
+
+**🐛 Package Installation Fails**
 ```bash
-# Add your OpenAI API key for LLM features
-OPENAI_API_KEY=your_openai_api_key_here
+# Network issues with PyPI
+python run.py --docker-check  # Check Docker alternative
+docker compose up             # Use containerized setup
 
-# Database configuration (optional)
-DATABASE_URL=sqlite:///./dartos.db
+# Or try manual installation
+python -m venv venv && source venv/bin/activate
+pip install --timeout 120 -r backend/requirements.txt
+python run.py --skip-install
 ```
 
-### 3. Start Services
+**🐳 Docker Issues**
 ```bash
-# Start all services
-docker-compose up -d
+# Check Docker is running
+docker info
 
-# View logs
-docker-compose logs -f
+# Clean up old containers
+docker stop dartos-postgres && docker rm dartos-postgres
+
+# Check Docker Compose
+docker compose config
 ```
 
-### 4. Access the Application
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-- **Frontend**: http://localhost:3000 (if using Docker Compose)
+**🗄️ Database Connection Issues**
+```bash
+# Check PostgreSQL container
+docker ps | grep postgres
+docker logs dartos-postgres
+
+# Test connection
+docker exec dartos-postgres pg_isready -U dartos
+```
+
+**🚀 Server Startup Problems**
+```bash
+# Check Python path and imports
+python -c "import fastapi, uvicorn, sqlalchemy; print('All imports OK')"
+
+# Check port availability
+netstat -tulpn | grep 8000
+
+# View detailed logs
+python run.py  # Check bootstrap output for specific errors
+```
 
 ## 📋 Usage Workflow
 
@@ -169,24 +301,52 @@ alembic upgrade head
 
 ```
 project-dartos/
-├── backend/
-│   ├── services/
-│   │   ├── pdf_processor.py    # PDF text extraction & OCR
-│   │   ├── llm_service.py      # OpenAI integration
-│   │   └── rag_service.py      # ChromaDB vector storage
-│   ├── main.py                 # FastAPI application
-│   ├── models.py               # Database models
-│   ├── schemas.py              # Pydantic schemas
-│   └── database.py             # Database configuration
-├── frontend/
+├── 🚀 run.py                     # Enhanced bootstrap script
+├── 🐳 docker-compose.yml         # Container orchestration
+├── 📖 README.md                  # Project documentation
+├── ⚙️  setup.sh                  # Alternative setup script
+├── backend/                      # FastAPI Backend
+│   ├── 🔧 main.py               # FastAPI application entry point
+│   ├── 🗄️  database.py          # Database configuration & connection
+│   ├── 📊 models.py             # SQLAlchemy database models
+│   ├── 📋 schemas.py            # Pydantic request/response schemas
+│   ├── 📄 requirements.txt      # Python dependencies
+│   ├── 🐳 Dockerfile            # Backend container configuration
+│   └── services/                # Backend service modules
+│       ├── 📄 pdf_processor.py  # PDF text extraction & OCR
+│       ├── 🤖 llm_service.py    # AI/LLM integration (OpenAI, xAI)
+│       └── 🔍 rag_service.py    # Vector database & RAG system
+├── frontend/                     # React Frontend (if configured)
 │   ├── src/
-│   │   ├── components/         # React components
-│   │   ├── pages/              # Page components
-│   │   └── services/           # API services
-│   └── public/
-├── docker-compose.yml          # Container orchestration
-└── README.md                   # This file
+│   │   ├── components/          # Reusable React components
+│   │   ├── pages/               # Page-level components
+│   │   ├── contexts/            # React context providers
+│   │   └── services/            # API communication services
+│   ├── public/                  # Static assets
+│   └── package.json             # Node.js dependencies
+├── uploads/                      # Document storage (auto-created)
+└── test files/                   # Testing utilities
+    ├── test_backend.py
+    ├── test_basic.py
+    └── create_sample_pdf.py
 ```
+
+## 🔧 Key Components
+
+### Enhanced Bootstrap Script (`run.py`)
+- **Smart dependency management** with multiple fallback strategies
+- **Docker integration** for PostgreSQL database
+- **System dependency installation** (build tools, PostgreSQL client)
+- **Network resilience** handling PyPI connectivity issues
+- **Comprehensive error reporting** with troubleshooting guidance
+- **Cross-platform compatibility** (Linux, macOS, Windows with WSL)
+
+### Backend Architecture (`backend/`)
+- **FastAPI framework** for high-performance REST API
+- **SQLAlchemy ORM** with PostgreSQL support
+- **Modular services** for PDF processing, AI integration, and RAG
+- **Containerized deployment** with Docker support
+- **Comprehensive error handling** and logging
 
 ## 🔌 API Endpoints
 
@@ -202,31 +362,92 @@ project-dartos/
 ### Health Check
 - `GET /` - API status and information
 
-## 🎯 Configuration Options
+## 🎯 Configuration & Environment
 
 ### Environment Variables
+
+The bootstrap script automatically sets up essential environment variables, but you can customize them:
+
 ```bash
-# Required for LLM features
-XAI_API_KEY=your_xai_api_key
+# Database Configuration (auto-configured by bootstrap script)
+DATABASE_URL=postgresql://dartos:dartos123@localhost:5432/dartos
 
-# Database
-DATABASE_URL=sqlite:///./dartos.db
+# Optional: AI/LLM Integration
+XAI_API_KEY=your_xai_api_key           # For xAI Grok API
+OPENAI_API_KEY=your_openai_api_key     # Alternative LLM provider
 
-# Optional: Use PostgreSQL
-DATABASE_URL=postgresql://user:pass@localhost:5432/dartos
+# Optional: Customize server behavior
+FASTAPI_HOST=0.0.0.0                   # Server host (default: 0.0.0.0)
+FASTAPI_PORT=8000                      # Server port (default: 8000)
+FASTAPI_RELOAD=false                   # Enable auto-reload in development
 ```
 
-### Docker Compose Customization
-- Modify `docker-compose.yml` for different ports
-- Add environment variables for production
-- Configure volume mounts for persistent storage
+### Bootstrap Script Configuration
 
-## 🧪 Testing
+The enhanced `run.py` script automatically:
+- Creates required directories (`uploads/`, `backend/chroma_db/`)
+- Sets up PostgreSQL connection string
+- Configures Docker container networking
+- Handles system-level dependencies
 
-### Backend Tests
+### Docker Compose Configuration
+
+For production or custom setups, modify `docker-compose.yml`:
+
+```yaml
+# Example customizations
+services:
+  backend:
+    ports:
+      - "8080:8000"  # Change external port
+    environment:
+      - DATABASE_URL=postgresql://custom_user:pass@db:5432/custom_db
+    volumes:
+      - ./custom_uploads:/app/uploads
+```
+
+### Development vs Production
+
+**Development (Bootstrap Script):**
+- Uses local PostgreSQL Docker container
+- Hot-reload enabled for FastAPI
+- Local file storage
+- Debug logging enabled
+
+**Production (Docker Compose Recommended):**
+- All services containerized
+- Production-optimized builds
+- Volume persistence
+- Environment variable management
+- Load balancing support
+
+## 🧪 Testing & Validation
+
+### Validate Bootstrap Setup
 ```bash
-cd backend
-pytest
+# Test the bootstrap script setup
+python run.py --docker-check           # Check Docker availability
+python run.py --help                   # View all options
+
+# Test Python imports (after installation)
+python -c "import fastapi, uvicorn, sqlalchemy, psycopg2, pydantic; print('✓ All packages OK')"
+```
+
+### Backend API Testing
+```bash
+# Test API endpoints
+curl http://localhost:8000/              # Health check
+curl http://localhost:8000/docs          # API documentation
+
+# Test database connection
+python -c "
+from backend.database import engine
+try:
+    with engine.connect() as conn:
+        print('✓ Database connection OK')
+except Exception as e:
+    print(f'✗ Database connection failed: {e}')
+"
 ```
 
 ### Frontend Tests
