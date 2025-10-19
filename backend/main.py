@@ -1,10 +1,17 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import os
+import logging
+from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from database import SessionLocal, engine
 from models import Base, Document
@@ -14,7 +21,7 @@ try:
     from services.rag_service import RAGService
     SERVICES_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Some services could not be imported: {e}")
+    logger.warning(f"Some services could not be imported: {e}")
     SERVICES_AVAILABLE = False
 from schemas import DocumentResponse, ProcessingRequest, SummaryResponse
 
@@ -28,7 +35,8 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Dartos - Agentic Info Services", 
     version="1.0.0"
-)# Configure CORS
+)
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins for development
@@ -37,8 +45,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files from React build
-app.mount("/static", StaticFiles(directory="frontend/build/static"), name="static")
+# Mount static files from React build (if available)
+static_dir = Path("frontend/build/static")
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+else:
+    logger.warning("Frontend build static directory not found, skipping static file mount")
 
 # Initialize services
 pdf_processor = PDFProcessor()
@@ -49,6 +61,11 @@ else:
     llm_service = None
     rag_service = None
 
+# Constants
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+ALLOWED_EXTENSIONS = {'.pdf'}
+UPLOAD_DIR = Path("uploads")
+
 # Dependency to get database session
 def get_db():
     db = SessionLocal()
@@ -56,6 +73,70 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def validate_file(file: UploadFile) -> None:
+    """Validate uploaded file"""
+    # Check file extension
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+    
+    # Check file size (if available)
+    if hasattr(file, 'size') and file.size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large. Maximum size: {MAX_FILE_SIZE} bytes")
+    
+    # Check content type
+    if file.content_type and not file.content_type.startswith('application/pdf'):
+        raise HTTPException(status_code=400, detail="Invalid content type. Must be PDF.")
+
+def save_uploaded_file(file: UploadFile, filename: str) -> str:
+    """Save uploaded file to disk"""
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    file_path = UPLOAD_DIR / filename
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            content = file.file.read()
+            if len(content) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail=f"File too large. Maximum size: {MAX_FILE_SIZE} bytes")
+            buffer.write(content)
+        logger.info(f"File saved: {file_path}")
+        return str(file_path)
+    except Exception as e:
+        logger.error(f"Failed to save file {filename}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+
+def process_and_index_document(doc_id: int, file_path: str):
+    """Background task to process and index document"""
+    try:
+        logger.info(f"Starting background processing for document {doc_id}")
+        
+        # Extract text
+        text_content = pdf_processor.extract_text(file_path)
+        if not text_content.strip():
+            logger.warning(f"No text extracted from {file_path}")
+            return
+        
+        # Update database with extracted text
+        db = SessionLocal()
+        try:
+            document = db.query(Document).filter(Document.id == doc_id).first()
+            if document:
+                document.content = text_content
+                db.commit()
+                logger.info(f"Updated document {doc_id} with extracted text")
+        finally:
+            db.close()
+        
+        # Index document in RAG system
+        if rag_service:
+            rag_service.index_document(doc_id, text_content)
+            logger.info(f"Indexed document {doc_id} in RAG system")
+        else:
+            logger.warning("RAG service not available, document not indexed")
+    
+    except Exception as e:
+        logger.error(f"Background processing failed for document {doc_id}: {e}")
 
 @app.get("/")
 async def root():
@@ -70,50 +151,49 @@ async def serve_spa(path: str):
 
 @app.post("/api/upload", response_model=DocumentResponse)
 async def upload_pdf(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     """Upload and process a PDF document"""
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    logger.info(f"Upload request received: {file.filename}")
     
     try:
-        # Save uploaded file
-        file_path = f"uploads/{file.filename}"
-        os.makedirs("uploads", exist_ok=True)
+        # Validate file
+        validate_file(file)
         
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
+        # Generate unique filename to avoid conflicts
+        import uuid
+        file_ext = Path(file.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = save_uploaded_file(file, unique_filename)
         
-        # Process PDF
-        text_content = pdf_processor.extract_text(file_path)
-        
-        # Store metadata in database
+        # Store initial metadata in database
         document = Document(
             filename=file.filename,
             file_path=file_path,
-            content=text_content
+            content=""  # Will be updated in background
         )
         db.add(document)
         db.commit()
         db.refresh(document)
+        logger.info(f"Document metadata stored: ID {document.id}")
         
-        # Index document in RAG system
-        if rag_service:
-            rag_service.index_document(document.id, text_content)
-        else:
-            print("Warning: RAG service not available, document not indexed")
+        # Start background processing
+        background_tasks.add_task(process_and_index_document, document.id, file_path)
         
         return DocumentResponse(
             id=document.id,
             filename=document.filename,
-            status="processed",
-            content_preview=text_content[:500] + "..." if len(text_content) > 500 else text_content
+            status="uploaded",  # Will be "processed" after background task
+            content_preview="Processing in progress..."
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/api/documents", response_model=list[DocumentResponse])
 async def list_documents(db: Session = Depends(get_db)):
