@@ -287,22 +287,55 @@ async def process_document(
     db: Session = Depends(get_db)
 ):
     """Process document with custom prompt using RAG"""
+    logger.info(f"Processing request: query='{request.query[:100]}...', top_k={request.top_k}")
+    
     try:
         # Retrieve relevant chunks using RAG
+        relevant_chunks = []
         if rag_service:
-            relevant_chunks = rag_service.search(request.query, k=request.top_k)
+            try:
+                relevant_chunks = rag_service.search(request.query, k=request.top_k)
+                logger.info(f"RAG search returned {len(relevant_chunks)} chunks")
+            except Exception as e:
+                logger.error(f"RAG search failed: {e}", exc_info=True)
+                relevant_chunks = []
         else:
-            relevant_chunks = ["RAG service not available"]
+            logger.warning("RAG service not available")
+            relevant_chunks = []
+        
+        # If no chunks found, provide helpful message
+        if not relevant_chunks:
+            # Check if any documents exist
+            doc_count = db.query(Document).count()
+            if doc_count == 0:
+                return SummaryResponse(
+                    query=request.query,
+                    response="No documents have been uploaded yet. Please upload some PDF documents first.",
+                    relevant_chunks=[]
+                )
+            else:
+                # Documents exist but no matches found
+                return SummaryResponse(
+                    query=request.query,
+                    response="No relevant content found in the uploaded documents for this query. Try rephrasing your question or uploading more relevant documents.",
+                    relevant_chunks=[]
+                )
         
         # Generate response using LLM
         if llm_service:
-            response = llm_service.generate_response(
-                query=request.query,
-                context=relevant_chunks,
-                custom_prompt=request.custom_prompt
-            )
+            try:
+                response = llm_service.generate_response(
+                    query=request.query,
+                    context=relevant_chunks,
+                    custom_prompt=request.custom_prompt
+                )
+                logger.info(f"LLM response generated ({len(response)} chars)")
+            except Exception as e:
+                logger.error(f"LLM generation failed: {e}", exc_info=True)
+                response = f"Error generating LLM response: {str(e)}. Retrieved context chunks are available below."
         else:
-            response = "LLM service not available. Please configure GROK_API_KEY."
+            logger.warning("LLM service not available")
+            response = "LLM service not available. Please configure GROK_API_KEY. Retrieved context chunks are shown below."
         
         return SummaryResponse(
             query=request.query,
@@ -311,6 +344,7 @@ async def process_document(
         )
         
     except Exception as e:
+        logger.error(f"Error processing request: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
 
 @app.get("/api/documents/{document_id}", response_model=DocumentResponse)
