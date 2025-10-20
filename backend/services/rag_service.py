@@ -39,13 +39,16 @@ class RAGService:
         """Initialize embedding model with error handling"""
         if SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
+                # Try to load the model - it will use cached version if available
+                # or download if not cached and network is available
                 self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
                 logger.info("Embedding model loaded successfully")
             except Exception as e:
                 logger.warning(f"Could not load embedding model: {e}")
+                logger.info("Will use ChromaDB's default embedding function")
                 self.embedding_model = None
         else:
-            logger.warning("sentence-transformers not available. RAG features will be limited.")
+            logger.warning("sentence-transformers not available. Using ChromaDB's default embedding.")
             self.embedding_model = None
     
     def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
