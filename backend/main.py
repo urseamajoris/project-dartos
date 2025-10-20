@@ -23,7 +23,7 @@ try:
 except ImportError as e:
     logger.warning(f"Some services could not be imported: {e}")
     SERVICES_AVAILABLE = False
-from schemas import DocumentResponse, ProcessingRequest, SummaryResponse
+from schemas import DocumentResponse, DocumentStatus, ProcessingRequest, SummaryResponse
 
 # Load environment variables
 load_dotenv()
@@ -36,6 +36,7 @@ app = FastAPI(
     title="Dartos - Agentic Info Services", 
     version="1.0.0"
 )
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +44,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
 )
 
 # Mount static files from React build (if available)
@@ -108,35 +110,70 @@ def save_uploaded_file(file: UploadFile, filename: str) -> str:
 
 def process_and_index_document(doc_id: int, file_path: str):
     """Background task to process and index document"""
+    db = SessionLocal()
     try:
         logger.info(f"Starting background processing for document {doc_id}")
         
+        # Update status to processing
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if not document:
+            logger.error(f"Document {doc_id} not found")
+            return
+        
+        document.status = "processing"
+        db.commit()
+        
         # Extract text
-        text_content = pdf_processor.extract_text(file_path)
-        if not text_content.strip():
-            logger.warning(f"No text extracted from {file_path}")
+        try:
+            text_content = pdf_processor.extract_text(file_path)
+            if not text_content.strip():
+                logger.warning(f"No text extracted from {file_path}")
+                document.status = "failed"
+                document.error_message = "No text could be extracted from the PDF"
+                db.commit()
+                return
+        except Exception as e:
+            logger.error(f"Text extraction failed for document {doc_id}: {e}")
+            document.status = "failed"
+            document.error_message = f"Text extraction failed: {str(e)}"
+            db.commit()
             return
         
         # Update database with extracted text
-        db = SessionLocal()
-        try:
-            document = db.query(Document).filter(Document.id == doc_id).first()
-            if document:
-                document.content = text_content
-                db.commit()
-                logger.info(f"Updated document {doc_id} with extracted text")
-        finally:
-            db.close()
+        document.content = text_content
+        db.commit()
+        logger.info(f"Updated document {doc_id} with extracted text ({len(text_content)} chars)")
         
         # Index document in RAG system
         if rag_service:
-            rag_service.index_document(doc_id, text_content)
-            logger.info(f"Indexed document {doc_id} in RAG system")
+            try:
+                rag_service.index_document(doc_id, text_content)
+                logger.info(f"Indexed document {doc_id} in RAG system")
+                document.status = "indexed"
+                db.commit()
+            except Exception as e:
+                logger.error(f"RAG indexing failed for document {doc_id}: {e}")
+                # Still mark as processed even if indexing fails
+                document.status = "processed"
+                document.error_message = f"RAG indexing failed: {str(e)}"
+                db.commit()
         else:
             logger.warning("RAG service not available, document not indexed")
+            document.status = "processed"
+            db.commit()
     
     except Exception as e:
-        logger.error(f"Background processing failed for document {doc_id}: {e}")
+        logger.error(f"Background processing failed for document {doc_id}: {e}", exc_info=True)
+        try:
+            document = db.query(Document).filter(Document.id == doc_id).first()
+            if document:
+                document.status = "failed"
+                document.error_message = str(e)
+                db.commit()
+        except:
+            pass
+    finally:
+        db.close()
 
 @app.get("/")
 async def root():
@@ -156,7 +193,7 @@ async def upload_pdf(
     db: Session = Depends(get_db)
 ):
     """Upload and process a PDF document"""
-    logger.info(f"Upload request received: {file.filename}")
+    logger.info(f"Upload request received: {file.filename} (content_type: {file.content_type})")
     
     try:
         # Validate file
@@ -166,18 +203,27 @@ async def upload_pdf(
         import uuid
         file_ext = Path(file.filename).suffix
         unique_filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = save_uploaded_file(file, unique_filename)
+        
+        # Save the uploaded file
+        try:
+            file_path = save_uploaded_file(file, unique_filename)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to save file: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
         
         # Store initial metadata in database
         document = Document(
             filename=file.filename,
             file_path=file_path,
-            content=""  # Will be updated in background
+            content="",
+            status="uploaded"
         )
         db.add(document)
         db.commit()
         db.refresh(document)
-        logger.info(f"Document metadata stored: ID {document.id}")
+        logger.info(f"Document metadata stored: ID {document.id}, Status: {document.status}")
         
         # Start background processing
         background_tasks.add_task(process_and_index_document, document.id, file_path)
@@ -185,14 +231,15 @@ async def upload_pdf(
         return DocumentResponse(
             id=document.id,
             filename=document.filename,
-            status="uploaded",  # Will be "processed" after background task
-            content_preview="Processing in progress..."
+            status=document.status,
+            content_preview="Processing in progress...",
+            error_message=None
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Upload failed: {e}")
+        logger.error(f"Upload failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.get("/api/documents", response_model=list[DocumentResponse])
@@ -203,11 +250,36 @@ async def list_documents(db: Session = Depends(get_db)):
         DocumentResponse(
             id=doc.id,
             filename=doc.filename,
-            status="processed",
-            content_preview=doc.content[:500] + "..." if len(doc.content) > 500 else doc.content
+            status=doc.status,
+            content_preview=doc.content[:500] + "..." if doc.content and len(doc.content) > 500 else (doc.content or ""),
+            error_message=doc.error_message
         )
         for doc in documents
     ]
+
+@app.get("/api/documents/{document_id}/status", response_model=DocumentStatus)
+async def get_document_status(document_id: int, db: Session = Depends(get_db)):
+    """Get processing status of a specific document"""
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Determine progress message based on status
+    progress_messages = {
+        "uploaded": "Document uploaded, waiting to be processed",
+        "processing": "Extracting text and indexing document",
+        "indexed": "Document fully processed and indexed",
+        "processed": "Document processed (indexing unavailable)",
+        "failed": "Processing failed"
+    }
+    
+    return DocumentStatus(
+        id=document.id,
+        filename=document.filename,
+        status=document.status,
+        progress=progress_messages.get(document.status, "Unknown status"),
+        error_message=document.error_message
+    )
 
 @app.post("/api/process", response_model=SummaryResponse)
 async def process_document(
@@ -215,22 +287,55 @@ async def process_document(
     db: Session = Depends(get_db)
 ):
     """Process document with custom prompt using RAG"""
+    logger.info(f"Processing request: query='{request.query[:100]}...', top_k={request.top_k}")
+    
     try:
         # Retrieve relevant chunks using RAG
+        relevant_chunks = []
         if rag_service:
-            relevant_chunks = rag_service.search(request.query, k=request.top_k)
+            try:
+                relevant_chunks = rag_service.search(request.query, k=request.top_k)
+                logger.info(f"RAG search returned {len(relevant_chunks)} chunks")
+            except Exception as e:
+                logger.error(f"RAG search failed: {e}", exc_info=True)
+                relevant_chunks = []
         else:
-            relevant_chunks = ["RAG service not available"]
+            logger.warning("RAG service not available")
+            relevant_chunks = []
+        
+        # If no chunks found, provide helpful message
+        if not relevant_chunks:
+            # Check if any documents exist
+            doc_count = db.query(Document).count()
+            if doc_count == 0:
+                return SummaryResponse(
+                    query=request.query,
+                    response="No documents have been uploaded yet. Please upload some PDF documents first.",
+                    relevant_chunks=[]
+                )
+            else:
+                # Documents exist but no matches found
+                return SummaryResponse(
+                    query=request.query,
+                    response="No relevant content found in the uploaded documents for this query. Try rephrasing your question or uploading more relevant documents.",
+                    relevant_chunks=[]
+                )
         
         # Generate response using LLM
         if llm_service:
-            response = llm_service.generate_response(
-                query=request.query,
-                context=relevant_chunks,
-                custom_prompt=request.custom_prompt
-            )
+            try:
+                response = llm_service.generate_response(
+                    query=request.query,
+                    context=relevant_chunks,
+                    custom_prompt=request.custom_prompt
+                )
+                logger.info(f"LLM response generated ({len(response)} chars)")
+            except Exception as e:
+                logger.error(f"LLM generation failed: {e}", exc_info=True)
+                response = f"Error generating LLM response: {str(e)}. Retrieved context chunks are available below."
         else:
-            response = "LLM service not available. Please configure GROK_API_KEY."
+            logger.warning("LLM service not available")
+            response = "LLM service not available. Please configure GROK_API_KEY. Retrieved context chunks are shown below."
         
         return SummaryResponse(
             query=request.query,
@@ -239,6 +344,7 @@ async def process_document(
         )
         
     except Exception as e:
+        logger.error(f"Error processing request: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
 
 @app.get("/api/documents/{document_id}", response_model=DocumentResponse)
@@ -251,8 +357,9 @@ async def get_document(document_id: int, db: Session = Depends(get_db)):
     return DocumentResponse(
         id=document.id,
         filename=document.filename,
-        status="processed",
-        content_preview=document.content
+        status=document.status,
+        content_preview=document.content or "",
+        error_message=document.error_message
     )
 
 if __name__ == "__main__":
@@ -262,7 +369,9 @@ if __name__ == "__main__":
         host="0.0.0.0", 
         port=8000,
         reload=False,
-        # Basic configuration for file uploads
+        # Configuration for file uploads
         limit_concurrency=10,
-        limit_max_requests=None
+        limit_max_requests=None,
+        timeout_keep_alive=300,  # 5 minutes keep-alive
+        timeout_graceful_shutdown=30
     )

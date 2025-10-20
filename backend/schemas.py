@@ -7,6 +7,17 @@ class DocumentResponse(BaseModel):
     filename: str
     status: str
     content_preview: str
+    error_message: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class DocumentStatus(BaseModel):
+    id: int
+    filename: str
+    status: str
+    progress: str
+    error_message: Optional[str] = None
     
     class Config:
         from_attributes = True

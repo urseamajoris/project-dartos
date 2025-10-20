@@ -4,6 +4,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 300000, // 5 minutes timeout for large file uploads
 });
 
 // Add request interceptor for debugging
@@ -30,6 +31,8 @@ api.interceptors.response.use(
     if (error.response) {
       console.error('Response Status:', error.response.status);
       console.error('Response Data:', error.response.data);
+    } else if (error.code === 'ECONNABORTED') {
+      console.error('Request timeout - file may be too large or network is slow');
     }
     
     return Promise.reject(error);
@@ -38,7 +41,7 @@ api.interceptors.response.use(
 
 export const documentService = {
   // Upload a PDF document
-  uploadDocument: async (file) => {
+  uploadDocument: async (file, onUploadProgress) => {
     const formData = new FormData();
     formData.append('file', file);
     
@@ -46,6 +49,8 @@ export const documentService = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      onUploadProgress: onUploadProgress,
+      timeout: 300000, // 5 minutes for large files
     });
     return response.data;
   },
@@ -59,6 +64,12 @@ export const documentService = {
   // Get a specific document
   getDocument: async (id) => {
     const response = await api.get(`/documents/${id}`);
+    return response.data;
+  },
+
+  // Get document processing status
+  getDocumentStatus: async (id) => {
+    const response = await api.get(`/documents/${id}/status`);
     return response.data;
   },
 
