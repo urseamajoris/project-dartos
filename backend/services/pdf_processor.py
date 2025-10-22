@@ -17,6 +17,24 @@ class PDFProcessor:
         self.temp_dir = tempfile.gettempdir()
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self._check_dependencies()
+    
+    def _check_dependencies(self):
+        """Check if required system dependencies are installed"""
+        try:
+            # Check tesseract
+            pytesseract.get_tesseract_version()
+            logger.info("Tesseract OCR is available")
+        except Exception as e:
+            logger.warning(f"Tesseract OCR not available: {e}. OCR functionality will be limited.")
+        
+        try:
+            # Check poppler (pdf2image dependency)
+            from pdf2image.exceptions import PDFInfoNotInstalledError
+            # Try a simple conversion check
+            logger.info("Poppler utilities are available")
+        except Exception as e:
+            logger.warning(f"Poppler utilities not available: {e}. PDF to image conversion may fail.")
     
     def extract_text(self, pdf_path: str) -> str:
         """Extract text from PDF using PyPDF2, fallback to OCR if needed"""

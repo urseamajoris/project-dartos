@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import os
 import logging
+import time
+import re
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
@@ -83,15 +85,39 @@ def validate_file(file: UploadFile) -> None:
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
     
-    # Check file size (if available)
-    if hasattr(file, 'size') and file.size > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail=f"File too large. Maximum size: {MAX_FILE_SIZE} bytes")
-    
     # Check content type
     if file.content_type and not file.content_type.startswith('application/pdf'):
         raise HTTPException(status_code=400, detail="Invalid content type. Must be PDF.")
 
-def save_uploaded_file(file: UploadFile, filename: str) -> str:
+def _validate_extracted_text(text: str) -> dict:
+    """Validate the quality of extracted text"""
+    if not text or not text.strip():
+        return {'is_valid': False, 'reason': 'No text content'}
+    
+    text = text.strip()
+    length = len(text)
+    
+    # Check minimum length
+    if length < 50:
+        return {'is_valid': False, 'reason': f'Text too short ({length} characters)'}
+    
+    # Check for excessive special characters (might indicate OCR failure)
+    special_chars = sum(1 for c in text if not c.isalnum() and not c.isspace() and c not in '.,!?;:-()[]{}')
+    special_ratio = special_chars / length
+    
+    if special_ratio > 0.3:  # More than 30% special characters
+        return {'is_valid': False, 'reason': f'Too many special characters ({special_ratio:.2%}) - possible OCR failure'}
+    
+    # Check for repetitive characters (might indicate extraction issues)
+    if re.search(r'(.)\1{10,}', text):  # 10+ consecutive same characters
+        return {'is_valid': False, 'reason': 'Repetitive characters detected - possible extraction error'}
+    
+    # Check word count
+    words = text.split()
+    if len(words) < 10:
+        return {'is_valid': False, 'reason': f'Insufficient word count ({len(words)} words)'}
+    
+    return {'is_valid': True, 'reason': 'Text validation passed'}
     """Save uploaded file to disk"""
     UPLOAD_DIR.mkdir(exist_ok=True)
     file_path = UPLOAD_DIR / filename
@@ -110,9 +136,12 @@ def save_uploaded_file(file: UploadFile, filename: str) -> str:
 
 def process_and_index_document(doc_id: int, file_path: str):
     """Background task to process and index document"""
+    import time
+    start_time = time.time()
+    logger.info(f"Starting background processing for document {doc_id} at {time.strftime('%H:%M:%S')}")
+    
     db = SessionLocal()
     try:
-        logger.info(f"Starting background processing for document {doc_id}")
         
         # Update status to processing
         document = db.query(Document).filter(Document.id == doc_id).first()
@@ -126,6 +155,16 @@ def process_and_index_document(doc_id: int, file_path: str):
         # Extract text
         try:
             text_content = pdf_processor.extract_text(file_path)
+            
+            # Validate extracted text
+            validation_result = self._validate_extracted_text(text_content)
+            if not validation_result['is_valid']:
+                logger.warning(f"Text validation failed for document {doc_id}: {validation_result['reason']}")
+                document.status = "failed"
+                document.error_message = f"Text extraction validation failed: {validation_result['reason']}"
+                db.commit()
+                return
+            
             if not text_content.strip():
                 logger.warning(f"No text extracted from {file_path}")
                 document.status = "failed"
@@ -146,21 +185,30 @@ def process_and_index_document(doc_id: int, file_path: str):
         
         # Index document in RAG system
         if rag_service:
-            try:
-                rag_service.index_document(doc_id, text_content)
-                logger.info(f"Indexed document {doc_id} in RAG system")
-                document.status = "indexed"
-                db.commit()
-            except Exception as e:
-                logger.error(f"RAG indexing failed for document {doc_id}: {e}")
-                # Still mark as processed even if indexing fails
-                document.status = "processed"
-                document.error_message = f"RAG indexing failed: {str(e)}"
-                db.commit()
+            max_index_retries = 3
+            for attempt in range(max_index_retries):
+                try:
+                    rag_service.index_document(doc_id, text_content)
+                    logger.info(f"Indexed document {doc_id} in RAG system")
+                    document.status = "indexed"
+                    document.error_message = None  # Clear any previous error
+                    db.commit()
+                    break
+                except Exception as e:
+                    logger.warning(f"RAG indexing attempt {attempt+1} failed for document {doc_id}: {e}")
+                    if attempt < max_index_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        logger.error(f"RAG indexing failed after {max_index_retries} attempts for document {doc_id}: {e}")
+                        document.status = "processed"
+                        document.error_message = f"RAG indexing failed after retries: {str(e)}"
+                        db.commit()
         else:
             logger.warning("RAG service not available, document not indexed")
             document.status = "processed"
             db.commit()
+        
+        logger.info(f"Document {doc_id} processing completed successfully")
     
     except Exception as e:
         logger.error(f"Background processing failed for document {doc_id}: {e}", exc_info=True)
@@ -174,6 +222,8 @@ def process_and_index_document(doc_id: int, file_path: str):
             pass
     finally:
         db.close()
+        elapsed = time.time() - start_time
+        logger.info(f"Completed processing document {doc_id} in {elapsed:.2f} seconds")
 
 @app.get("/")
 async def root():

@@ -27,8 +27,12 @@ function FileUpload({ onUploadSuccess }) {
   const [processingStatus, setProcessingStatus] = useState({});
   const { showError } = useError();
 
-  // Poll for document processing status
-  const pollDocumentStatus = useCallback(async (documentId) => {
+  // Poll for document processing status with exponential backoff
+  const pollDocumentStatus = useCallback(async (documentId, attempt = 0) => {
+    const maxAttempts = 30; // Stop after ~5 minutes with backoff
+    const baseDelay = 1000; // Start with 1 second
+    const maxDelay = 10000; // Max 10 seconds
+    
     try {
       const status = await documentService.getDocumentStatus(documentId);
       setProcessingStatus(prev => ({
@@ -36,12 +40,18 @@ function FileUpload({ onUploadSuccess }) {
         [documentId]: status
       }));
 
-      // Continue polling if still processing
-      if (status.status === 'uploaded' || status.status === 'processing') {
-        setTimeout(() => pollDocumentStatus(documentId), 2000);
+      // Continue polling if still processing and not exceeded max attempts
+      if ((status.status === 'uploaded' || status.status === 'processing') && attempt < maxAttempts) {
+        const delay = Math.min(baseDelay * Math.pow(1.5, attempt), maxDelay);
+        setTimeout(() => pollDocumentStatus(documentId, attempt + 1), delay);
       }
     } catch (err) {
       console.error('Error polling status:', err);
+      // Retry with backoff even on error, but stop after max attempts
+      if (attempt < maxAttempts) {
+        const delay = Math.min(baseDelay * Math.pow(1.5, attempt), maxDelay);
+        setTimeout(() => pollDocumentStatus(documentId, attempt + 1), delay);
+      }
     }
   }, []);
 
