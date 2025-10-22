@@ -227,17 +227,6 @@ def process_and_index_document(doc_id: int, file_path: str):
         elapsed = time.time() - start_time
         logger.info(f"Completed processing document {doc_id} in {elapsed:.2f} seconds")
 
-@app.get("/")
-async def root():
-    return FileResponse("frontend/build/index.html")
-
-@app.get("/{path:path}")
-async def serve_spa(path: str):
-    # Serve index.html for all non-API routes (SPA routing)
-    if path.startswith("api/") or path.startswith("static/"):
-        raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse("frontend/build/index.html")
-
 @app.post("/api/upload", response_model=DocumentResponse)
 async def upload_pdf(
     background_tasks: BackgroundTasks,
@@ -413,6 +402,18 @@ async def get_document(document_id: int, db: Session = Depends(get_db)):
         content_preview=document.content or "",
         error_message=document.error_message
     )
+
+# Catch-all routes for SPA - MUST be defined last
+@app.get("/")
+async def root():
+    return FileResponse("frontend/build/index.html")
+
+@app.get("/{path:path}")
+async def serve_spa(path: str):
+    # Serve index.html for all non-API routes (SPA routing)
+    if path.startswith("api/") or path.startswith("static/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse("frontend/build/index.html")
 
 if __name__ == "__main__":
     import uvicorn
