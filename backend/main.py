@@ -118,6 +118,8 @@ def _validate_extracted_text(text: str) -> dict:
         return {'is_valid': False, 'reason': f'Insufficient word count ({len(words)} words)'}
     
     return {'is_valid': True, 'reason': 'Text validation passed'}
+
+def save_uploaded_file(file: UploadFile, filename: str) -> str:
     """Save uploaded file to disk"""
     UPLOAD_DIR.mkdir(exist_ok=True)
     file_path = UPLOAD_DIR / filename
@@ -157,7 +159,7 @@ def process_and_index_document(doc_id: int, file_path: str):
             text_content = pdf_processor.extract_text(file_path)
             
             # Validate extracted text
-            validation_result = self._validate_extracted_text(text_content)
+            validation_result = _validate_extracted_text(text_content)
             if not validation_result['is_valid']:
                 logger.warning(f"Text validation failed for document {doc_id}: {validation_result['reason']}")
                 document.status = "failed"
