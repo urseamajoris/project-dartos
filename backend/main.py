@@ -1,41 +1,61 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
-import os
+"""
+Dartos - Agentic Automated Info Services Backend
+FastAPI application for PDF processing, AI analysis, and RAG-based document querying.
+"""
+
 import logging
-import time
+import os
 import re
+import time
+import uuid
 from pathlib import Path
 from typing import Optional
-from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
 from database import SessionLocal, engine
 from models import Base, Document
+from schemas import DocumentResponse, DocumentStatus, LogEntry, ProcessingRequest, SummaryResponse
 from services.pdf_processor import PDFProcessor
+
+# Try to import optional services
 try:
     from services.llm_service import LLMService
     from services.rag_service import RAGService
     SERVICES_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Some services could not be imported: {e}")
+    logging.warning(f"Some services could not be imported: {e}")
     SERVICES_AVAILABLE = False
-from schemas import DocumentResponse, DocumentStatus, ProcessingRequest, SummaryResponse
 
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Constants
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+ALLOWED_EXTENSIONS = {'.pdf'}
+UPLOAD_DIR = Path("uploads")
+FRONTEND_BUILD_DIR = Path("frontend/build")
+
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+# Initialize services
+pdf_processor = PDFProcessor()
+llm_service = LLMService() if SERVICES_AVAILABLE else None
+rag_service = RAGService() if SERVICES_AVAILABLE else None
+
 # Configure FastAPI with larger file upload limits
 app = FastAPI(
-    title="Dartos - Agentic Info Services", 
+    title="Dartos - Agentic Info Services",
     version="1.0.0"
 )
 
@@ -50,25 +70,14 @@ app.add_middleware(
 )
 
 # Mount static files from React build (if available)
-static_dir = Path("frontend/build/static")
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+if FRONTEND_BUILD_DIR.exists():
+    static_dir = FRONTEND_BUILD_DIR / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    else:
+        logger.warning("Frontend build static directory not found, skipping static file mount")
 else:
-    logger.warning("Frontend build static directory not found, skipping static file mount")
-
-# Initialize services
-pdf_processor = PDFProcessor()
-if SERVICES_AVAILABLE:
-    llm_service = LLMService()
-    rag_service = RAGService()
-else:
-    llm_service = None
-    rag_service = None
-
-# Constants
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-ALLOWED_EXTENSIONS = {'.pdf'}
-UPLOAD_DIR = Path("uploads")
+    logger.warning("Frontend build directory not found, skipping static file mount")
 
 # Dependency to get database session
 def get_db():
@@ -136,82 +145,80 @@ def save_uploaded_file(file: UploadFile, filename: str) -> str:
         logger.error(f"Failed to save file {filename}: {e}")
         raise HTTPException(status_code=500, detail="Failed to save uploaded file")
 
+def _extract_and_validate_text(pdf_processor: PDFProcessor, file_path: str) -> tuple[str, bool, str]:
+    """Extract text from PDF and validate its quality"""
+    try:
+        text_content = pdf_processor.extract_text(file_path)
+
+        # Validate extracted text
+        validation_result = _validate_extracted_text(text_content)
+        if not validation_result['is_valid']:
+            return "", False, f"Text extraction validation failed: {validation_result['reason']}"
+
+        if not text_content.strip():
+            return "", False, "No text could be extracted from the PDF"
+
+        return text_content, True, ""
+    except Exception as e:
+        return "", False, f"Text extraction failed: {str(e)}"
+
+
+def _index_document_with_rag(rag_service, doc_id: int, text_content: str) -> tuple[str, str]:
+    """Index document in RAG system with retry logic"""
+    if not rag_service:
+        return "processed", "RAG service not available, document not indexed"
+
+    max_index_retries = 3
+    for attempt in range(max_index_retries):
+        try:
+            rag_service.index_document(doc_id, text_content)
+            return "indexed", None
+        except Exception as e:
+            if attempt < max_index_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff
+            else:
+                return "processed", f"RAG indexing failed after retries: {str(e)}"
+
+    return "processed", "RAG indexing failed after retries"
+
+
 def process_and_index_document(doc_id: int, file_path: str):
     """Background task to process and index document"""
-    import time
     start_time = time.time()
-    logger.info(f"Starting background processing for document {doc_id} at {time.strftime('%H:%M:%S')}")
-    
+    logger.info(f"Starting background processing for document {doc_id}")
+
     db = SessionLocal()
     try:
-        
         # Update status to processing
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document:
             logger.error(f"Document {doc_id} not found")
             return
-        
+
         document.status = "processing"
         db.commit()
-        
-        # Extract text
-        try:
-            text_content = pdf_processor.extract_text(file_path)
-            
-            # Validate extracted text
-            validation_result = _validate_extracted_text(text_content)
-            if not validation_result['is_valid']:
-                logger.warning(f"Text validation failed for document {doc_id}: {validation_result['reason']}")
-                document.status = "failed"
-                document.error_message = f"Text extraction validation failed: {validation_result['reason']}"
-                db.commit()
-                return
-            
-            if not text_content.strip():
-                logger.warning(f"No text extracted from {file_path}")
-                document.status = "failed"
-                document.error_message = "No text could be extracted from the PDF"
-                db.commit()
-                return
-        except Exception as e:
-            logger.error(f"Text extraction failed for document {doc_id}: {e}")
+
+        # Extract and validate text
+        text_content, success, error_msg = _extract_and_validate_text(pdf_processor, file_path)
+        if not success:
             document.status = "failed"
-            document.error_message = f"Text extraction failed: {str(e)}"
+            document.error_message = error_msg
             db.commit()
             return
-        
+
         # Update database with extracted text
         document.content = text_content
         db.commit()
         logger.info(f"Updated document {doc_id} with extracted text ({len(text_content)} chars)")
-        
+
         # Index document in RAG system
-        if rag_service:
-            max_index_retries = 3
-            for attempt in range(max_index_retries):
-                try:
-                    rag_service.index_document(doc_id, text_content)
-                    logger.info(f"Indexed document {doc_id} in RAG system")
-                    document.status = "indexed"
-                    document.error_message = None  # Clear any previous error
-                    db.commit()
-                    break
-                except Exception as e:
-                    logger.warning(f"RAG indexing attempt {attempt+1} failed for document {doc_id}: {e}")
-                    if attempt < max_index_retries - 1:
-                        time.sleep(2 ** attempt)  # Exponential backoff
-                    else:
-                        logger.error(f"RAG indexing failed after {max_index_retries} attempts for document {doc_id}: {e}")
-                        document.status = "processed"
-                        document.error_message = f"RAG indexing failed after retries: {str(e)}"
-                        db.commit()
-        else:
-            logger.warning("RAG service not available, document not indexed")
-            document.status = "processed"
-            db.commit()
-        
+        final_status, rag_error = _index_document_with_rag(rag_service, doc_id, text_content)
+        document.status = final_status
+        document.error_message = rag_error
+        db.commit()
+
         logger.info(f"Document {doc_id} processing completed successfully")
-    
+
     except Exception as e:
         logger.error(f"Background processing failed for document {doc_id}: {e}", exc_info=True)
         try:
@@ -235,25 +242,18 @@ async def upload_pdf(
 ):
     """Upload and process a PDF document"""
     logger.info(f"Upload request received: {file.filename} (content_type: {file.content_type})")
-    
+
     try:
         # Validate file
         validate_file(file)
-        
+
         # Generate unique filename to avoid conflicts
-        import uuid
         file_ext = Path(file.filename).suffix
         unique_filename = f"{uuid.uuid4()}{file_ext}"
-        
+
         # Save the uploaded file
-        try:
-            file_path = save_uploaded_file(file, unique_filename)
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to save file: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
-        
+        file_path = save_uploaded_file(file, unique_filename)
+
         # Store initial metadata in database
         document = Document(
             filename=file.filename,
@@ -265,10 +265,10 @@ async def upload_pdf(
         db.commit()
         db.refresh(document)
         logger.info(f"Document metadata stored: ID {document.id}, Status: {document.status}")
-        
+
         # Start background processing
         background_tasks.add_task(process_and_index_document, document.id, file_path)
-        
+
         return DocumentResponse(
             id=document.id,
             filename=document.filename,
@@ -276,7 +276,7 @@ async def upload_pdf(
             content_preview="Processing in progress...",
             error_message=None
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -402,6 +402,27 @@ async def get_document(document_id: int, db: Session = Depends(get_db)):
         content_preview=document.content or "",
         error_message=document.error_message
     )
+
+@app.post("/api/log")
+async def log_frontend(log_entry: LogEntry):
+    """Receive logs from frontend"""
+    level = log_entry.level.upper()
+    message = f"[FRONTEND] {log_entry.message}"
+    if log_entry.data:
+        message += f" | Data: {log_entry.data}"
+    
+    if level == "DEBUG":
+        logger.debug(message)
+    elif level == "INFO":
+        logger.info(message)
+    elif level == "WARN":
+        logger.warning(message)
+    elif level == "ERROR":
+        logger.error(message)
+    else:
+        logger.info(f"[{level}] {message}")
+    
+    return {"status": "logged"}
 
 # Catch-all routes for SPA - MUST be defined last
 @app.get("/")

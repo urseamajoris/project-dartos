@@ -1,6 +1,15 @@
 import axios from 'axios';
+import { debug, info, error } from '../utils/logger';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+// Determine API base URL
+// Priority: REACT_APP_API_URL env var > relative path for proxy
+// When REACT_APP_API_URL is set (local development), use it directly
+// Otherwise, use '/api' which will be proxied by setupProxy.js (Docker)
+const API_BASE_URL = process.env.REACT_APP_API_URL 
+  ? `${process.env.REACT_APP_API_URL}/api`
+  : '/api';
+
+console.log('[API] Base URL configured as:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -10,32 +19,51 @@ const api = axios.create({
 // Add request interceptor for debugging
 api.interceptors.request.use(
   (config) => {
-    console.log('API Request:', config.method?.toUpperCase(), config.url);
+    const requestInfo = {
+      url: config.url,
+      method: config.method?.toUpperCase(),
+      headers: config.headers,
+      data: config.data,
+      timestamp: new Date().toISOString(),
+    };
+    debug('API request start', requestInfo);
     return config;
   },
-  (error) => {
-    console.error('API Request Error:', error);
-    return Promise.reject(error);
+  (err) => {
+    error('API request error', { error: err });
+    return Promise.reject(err);
   }
 );
 
 // Add response interceptor to handle common errors
 api.interceptors.response.use(
   (response) => {
+    const responseInfo = {
+      url: response.config.url,
+      method: response.config.method?.toUpperCase(),
+      status: response.status,
+      headers: response.headers,
+      data: response.data,
+      timestamp: new Date().toISOString(),
+    };
+    info('API response success', responseInfo);
     return response;
   },
-  (error) => {
-    console.error('API Response Error:', error.response || error);
-    
-    // Log specific error details for debugging
-    if (error.response) {
-      console.error('Response Status:', error.response.status);
-      console.error('Response Data:', error.response.data);
-    } else if (error.code === 'ECONNABORTED') {
-      console.error('Request timeout - file may be too large or network is slow');
-    }
-    
-    return Promise.reject(error);
+  (err) => {
+    const errorInfo = {
+      url: err.config?.url,
+      method: err.config?.method?.toUpperCase(),
+      error: err.message,
+      code: err.code,
+      response: err.response ? {
+        status: err.response.status,
+        data: err.response.data,
+        headers: err.response.headers,
+      } : null,
+      timestamp: new Date().toISOString(),
+    };
+    error('API response error', errorInfo);
+    return Promise.reject(err);
   }
 );
 

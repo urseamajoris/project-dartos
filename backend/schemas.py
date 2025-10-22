@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 
 class DocumentResponse(BaseModel):
@@ -31,3 +31,9 @@ class SummaryResponse(BaseModel):
     query: str
     response: str
     relevant_chunks: List[str]
+
+class LogEntry(BaseModel):
+    level: str
+    message: str
+    data: Optional[Any] = None
+    timestamp: str
