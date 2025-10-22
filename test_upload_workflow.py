@@ -121,6 +121,66 @@ def test_rag_service_offline():
         traceback.print_exc()
         return False
 
+def test_end_to_end_processing():
+    """Test end-to-end document processing pipeline"""
+    print("Testing end-to-end document processing...")
+    try:
+        from services.pdf_processor import PDFProcessor
+        from services.rag_service import RAGService
+        from services.llm_service import LLMService
+        import tempfile
+        import os
+        
+        # Create sample PDF if it doesn't exist
+        sample_pdf = "sample_document.pdf"
+        if not os.path.exists(sample_pdf):
+            try:
+                from create_sample_pdf import create_sample_pdf
+                create_sample_pdf()
+            except (ImportError, Exception) as e:
+                print(f"⚠️ Cannot create sample PDF: {e}")
+                print("⚠️ Skipping end-to-end test - no test PDF available")
+                return False
+        
+        if not os.path.exists(sample_pdf):
+            print("⚠️ Sample PDF not available, skipping end-to-end test")
+            return False
+        
+        # Initialize services
+        pdf_processor = PDFProcessor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rag_service = RAGService(chroma_path=temp_dir)
+            llm_service = LLMService()
+            
+            # Extract text
+            text = pdf_processor.extract_text(sample_pdf)
+            assert text and len(text) > 100, "Text extraction failed"
+            
+            # Chunk and index
+            doc_id = 999  # Test ID
+            rag_service.index_document(doc_id, text)
+            
+            # Test search
+            results = rag_service.search("What are the main features?", k=3)
+            assert len(results) > 0, "RAG search failed"
+            
+            # Test LLM response (if API key available)
+            if llm_service.client:
+                response = llm_service.generate_response(
+                    "What are the main features of this system?",
+                    results
+                )
+                assert response and len(response) > 10, "LLM response failed"
+            
+            print("✅ End-to-end processing test passed")
+            return True
+    
+    except Exception as e:
+        print(f"❌ End-to-end test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def main():
     print("🧪 Running File Upload Workflow Tests\n")
     
@@ -129,6 +189,7 @@ def main():
         test_document_model,
         test_llm_service,
         test_rag_service_offline,
+        test_end_to_end_processing,
     ]
     
     passed = 0

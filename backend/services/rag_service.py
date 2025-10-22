@@ -52,13 +52,14 @@ class RAGService:
             self.embedding_model = None
     
     def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-        """Split text into overlapping chunks"""
+        """Split text into overlapping chunks with improved sentence boundary detection"""
         if not text or not text.strip():
             logger.warning("Empty text provided for chunking")
             return []
         
-        # Clean the text
-        text = re.sub(r'\s+', ' ', text.strip())
+        # Clean the text - preserve paragraph breaks but normalize whitespace
+        text = re.sub(r'[ \t]+', ' ', text.strip())
+        text = re.sub(r'\n\s*\n', '\n\n', text)  # Preserve paragraph breaks
         logger.info(f"Chunking text of length {len(text)} with chunk_size={chunk_size}, overlap={overlap}")
         
         chunks = []
@@ -67,18 +68,31 @@ class RAGService:
         while start < len(text):
             end = start + chunk_size
             
-            # Try to break at sentence boundaries
+            # Try to break at sentence boundaries first
             if end < len(text):
-                # Look for sentence endings
-                sentence_end = text.rfind('.', start, end)
-                if sentence_end != -1 and sentence_end > start + chunk_size // 2:
-                    end = sentence_end + 1
+                # Look for sentence endings: . ! ? followed by space or newline
+                sentence_pattern = r'[.!?]\s'
+                matches = list(re.finditer(sentence_pattern, text[start:end]))
+                if matches:
+                    # Take the last sentence end that's at least 60% into the chunk
+                    min_pos = start + int(chunk_size * 0.6)
+                    for match in reversed(matches):
+                        if match.end() + start >= min_pos:
+                            end = match.end() + start
+                            break
+                
+                # If no good sentence break, try paragraph breaks
+                if end == start + chunk_size:  # No sentence break found
+                    para_break = text.rfind('\n\n', start, end)
+                    if para_break != -1 and para_break > start + chunk_size // 2:
+                        end = para_break + 2  # Include the \n\n
             
             chunk = text[start:end].strip()
             if chunk:
                 chunks.append(chunk)
             
-            start = end - overlap
+            # Move start position with overlap
+            start = max(start + 1, end - overlap)  # Ensure progress
         
         logger.info(f"Created {len(chunks)} chunks")
         return chunks
